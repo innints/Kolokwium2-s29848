@@ -3,6 +3,14 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Kolokwium2.Data;
 
+//dotnet
+/*
+dotnet tool install --global dotnet-ef 
+cd.\Kolokwium2
+dotnet ef
+dotnet ef migrations add "Add again maybe it will work"
+*/
+
 public class AppDbContext : DbContext
 {
     // Any class representing a table should be added here as a DbSet to be visible for migrations system
