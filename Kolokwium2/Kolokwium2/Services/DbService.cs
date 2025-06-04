@@ -9,152 +9,102 @@ using Microsoft.EntityFrameworkCore;
 namespace Kolokwium2.Services;
 public interface IDbService
 {
-    public Task<IEnumerable<PatientGetDto>> GetAllPatientsDetailsAsync();
+    public Task<IEnumerable<EnrollmentGetDto>> GetAllEnrollmentsWithDetailsAsync();
     
     
-    public Task<PrescriptionGetDto> CreatePrescriptionAsync(PrescriptionCreateDto prescriptionData);
+    public Task<CourseWithNewEnrollmentsGetDto> CreateNewCourseWithAssignedStudentsAsync(CourseCreateDto courseDto);
     
 }
 
 public class DbService(AppDbContext data) : IDbService
 {
-    public async Task<IEnumerable<PatientGetDto>> GetAllPatientsDetailsAsync()
+    public async Task<IEnumerable<EnrollmentGetDto>> GetAllEnrollmentsWithDetailsAsync()
     {
 
-        return await data.Patients
-            //.Where(pa => pa.IdPatient == idPatient) gdyby vyło dla konkretnego id
-            .Select(pa => new PatientGetDto
+        return await data.Enrollments
+           .Select(e => new EnrollmentGetDto
             {
-                IdPatient = pa.IdPatient,
-                FirstName = pa.FirstName,
-                LastName = pa.LastName,
-                Birthdate = pa.Birthdate,
-                Prescriptions = pa.Prescriptions
-                    .OrderBy(pr => pr.DueDate)
-                    .Select(pr => new PatientGetDtoPrescription
-                        {
-                            IdPrescription = pr.IdPrescription,
-                            Date = pr.Date,
-                            DueDate = pr.DueDate,
-                            Medicaments = pr.PrescriptionMedicaments.Select(pm => new PatientGetDtoMedicament
-                            {
-                                IdMedicament = pm.IdMedicament,
-                                Name = pm.Medicament.Name,
-                                Dose = pm.Dose,
-                                Description = pm.Medicament.Description,
-                            }).ToList(),
-                            Doctor = new PatientGetDtoDoctor
-                            {
-                                IdDoctor = pr.IdDoctor,
-                                FirstName = pr.Doctor.FirstName,
-                                LastName = pr.Doctor.LastName,
-                                Email = pr.Doctor.Email
-                            }
-
-                        }
-
-                    ).ToList()
+                EnrollmentDate = e.EnrollmentDate,
+                
+                Student = data.Students
+                    .Where(s=>s.IdStudent==e.IdStudent)
+                    .Select(s=>new EnrollmentGetDtoStudent
+                    {
+                        IdStudent = s.IdStudent,
+                        FirstName = s.FirstName,
+                        LastName = s.LastName,
+                        Email = s.Email,
+                        
+                        
+                    }).FirstOrDefault()!,
+                Course = data.Courses
+                    .Where(c=>c.IdCourse==e.IdCourse)
+                    .Select(c=>new EnrollmentGetDtoCourse()
+                    {
+                        IdCourse = c.IdCourse,
+                        Title = c.Title,
+                        Teacher = c.Teacher
+                        
+                        
+                    }).FirstOrDefault()!
+                
+                    
             }).ToListAsync();
     }
 
-    public async Task<PrescriptionGetDto> CreatePrescriptionAsync(PrescriptionCreateDto prescriptionData)
+    public async Task<CourseWithNewEnrollmentsGetDto> CreateNewCourseWithAssignedStudentsAsync(CourseCreateDto courseDto)
     {
-        if (prescriptionData.DueDate < prescriptionData.Date)
-        {
-            throw new IncorrectDateException("Due date cannot be before Date");
-        }
-
-        if (prescriptionData.Medicaments.Count > 10)
-        {
-            throw new TooManyMedicamentsException("Number of medicaments cannot be more than 10");
-        }
-
-
-
-        // At first, we have to check if medicaments exist
-        if (prescriptionData.Medicaments.Count != 0) //prescriptionData.Medicaments is not null  to nie bo jest not null
-        {
-            foreach (var medicamentDto in prescriptionData.Medicaments)
-            {
-                var medicament =
-                    await data.Medicaments.FirstOrDefaultAsync(m => m.IdMedicament == medicamentDto.IdMedicament);
-                if (medicament is null)
-                {
-                    throw new NotFoundException($"Medicament with id: {medicamentDto.IdMedicament} not found");
-                }
-
-            }
-        }
-
-        //czy doktor istnieje
-        var doctor = await data.Doctors.FirstOrDefaultAsync(d => d.IdDoctor == prescriptionData.IdDoctor);
-        if (doctor is null)
-        {
-
-            throw new NotFoundException($"Doctor with id: {prescriptionData.IdDoctor} not found");
-        }
-
-
         await using var transaction = await data.Database.BeginTransactionAsync();
         try
         {
-            var patient =
-                await data.Patients.FirstOrDefaultAsync(p => p.IdPatient == prescriptionData.Patient.IdPatient);
-            if (patient is null)
+            var course = new Course()
             {
-                patient = new Patient
-                {
-                    // IdPatient = prescriptionData.Patient.IdPatient, bez tego id jest automatycznie
-                    FirstName = prescriptionData.Patient.FirstName,
-                    LastName = prescriptionData.Patient.LastName,
-                    Birthdate = prescriptionData.Patient.Birthdate
-                };
-                await data.Patients.AddAsync(patient);
-                await data.SaveChangesAsync();
-            }
-
-
-
-
-
-
-
-            var prescription = new Prescription
-            {
-                Date = prescriptionData.Date,
-                DueDate = prescriptionData.DueDate,
-                IdPatient = patient.IdPatient,
-                IdDoctor = doctor.IdDoctor
+                Title = courseDto.Title,
+                Credits = courseDto.Credits ?? null,
+                Teacher = courseDto.Teacher,
             };
+            await data.Courses.AddAsync(course);
 
-            await data.Prescriptions.AddAsync(prescription);
             await data.SaveChangesAsync();
-
-
-
-
-            foreach (var m in prescriptionData.Medicaments)
+            
+            foreach (var s in courseDto.Students)
             {
-                await data.PrescriptionMedicaments.AddAsync(new PrescriptionMedicament
+                var student = await data.Students.FirstOrDefaultAsync(p => p.FirstName == s.FirstName && p.LastName == s.LastName && p.Email == s.Email);//nie wiem czy to dla nulli zadziała
+                if (student is null)
                 {
+                    var st = new Student
+                    {
 
-                    IdPrescription = prescription.IdPrescription,
-                    IdMedicament = m.IdMedicament,
-                    Dose = m.Dose ?? null,
-                    Details = m.Details
-                });
+                        FirstName = s.FirstName,
+                        LastName = s.LastName,
+                        Email = s.Email ?? null,
+                    };
+                    await data.Students.AddAsync(st);
+                    student = st;
+                }
+                await data.SaveChangesAsync();
+                await data.Enrollments.AddAsync(new Enrollment
+                    {
+                        IdCourse = course.IdCourse,
+                        IdStudent = student.IdStudent,
+                        EnrollmentDate = DateTime.Now
+                    }
+                );
             }
-
-
             await data.SaveChangesAsync();
+            
+            
+            
+            
+            
+            
+            
             await transaction.CommitAsync();
-            return new PrescriptionGetDto
+
+            return new CourseWithNewEnrollmentsGetDto
             {
-                IdPrescription = prescription.IdPrescription,
-                Date = prescription.Date,
-                DueDate = prescription.DueDate,
-                IdDoctor = doctor.IdDoctor,
-                IdPatient = prescription.IdPatient,
+                Message = "Kurs został utworzony i studenci zapisani",
+                IdCourse = course.IdCourse,
             };
         }
         catch (Exception)
@@ -163,8 +113,8 @@ public class DbService(AppDbContext data) : IDbService
             await transaction.RollbackAsync();
             throw;
         }
-
-
-
     }
+
+    
+    
 }
