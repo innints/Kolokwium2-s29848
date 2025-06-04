@@ -2,7 +2,7 @@
 
 using Kolokwium2.Data;
 using Kolokwium2.DTOs;
-using Kolokwium2.Exceptions;
+
 using Kolokwium2.Models;
 using Microsoft.EntityFrameworkCore;
 
